@@ -1,0 +1,11 @@
+step,rows_affected,reason
+raw orders,99441,
+removed: not delivered,2963,"canceled, unavailable, still in transit - no delivery to measure"
+removed: delivered but no delivery date,8,"status says delivered, timestamp missing"
+removed: outside Jan 2017 - Aug 2018,267,2016 and Sep/Oct 2018 have only a handful of orders per month
+reviews: orders with more than one review,547,kept the most recent answer per order
+orders without a review,643,kept; review score left blank
+carrier pickup before payment approval,1350,"timestamp inconsistency in source; kept, not used in any measure"
+products without a category,610,labelled 'Unknown'
+categories missing an English translation,2,translated manually
+final: delivered orders in model,96203,

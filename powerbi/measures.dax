@@ -1,0 +1,133 @@
+// =====================================================================================
+//  E-commerce Delivery & Reviews Dashboard - DAX
+//  Tables: fact_orders, fact_order_items, dim_products, dim_sellers, dim_states, 'Date'
+//  Every measure below has a matching pandas calculation in analysis/reference_numbers.py.
+//  Expected values (no filters) are listed in powerbi/reference_numbers.md.
+// =====================================================================================
+
+
+// -------------------------------------------------------------------------------------
+//  1. DATE TABLE   (Modeling > New table)
+//     Then: mark as date table on 'Date'[Date]; sort 'Date'[Month] by 'Date'[Year Month].
+// -------------------------------------------------------------------------------------
+Date =
+ADDCOLUMNS (
+    CALENDAR ( DATE ( 2017, 1, 1 ), DATE ( 2018, 8, 31 ) ),
+    "Year", YEAR ( [Date] ),
+    "Quarter", "Q" & QUARTER ( [Date] ) & " " & YEAR ( [Date] ),
+    "Month Number", MONTH ( [Date] ),
+    "Month", FORMAT ( [Date], "MMM yyyy" ),
+    "Year Month", YEAR ( [Date] ) * 100 + MONTH ( [Date] ),
+    "Month Start", DATE ( YEAR ( [Date] ), MONTH ( [Date] ), 1 ),
+    "Weekday", FORMAT ( [Date], "ddd" ),
+    "Weekday Number", WEEKDAY ( [Date], 2 )
+)
+
+
+// -------------------------------------------------------------------------------------
+//  2. MEASURES   (create an empty table called _Measures and add these to it)
+// -------------------------------------------------------------------------------------
+
+// ---- Volume -------------------------------------------------------------------------
+Delivered Orders =
+COUNTROWS ( fact_orders )
+
+Late Orders =
+CALCULATE ( [Delivered Orders], fact_orders[is_late] = 1 )
+
+Revenue =
+SUM ( fact_order_items[price] )                        // BRL, product price excl. freight
+
+Revenue in Late Orders =
+CALCULATE ( [Revenue], fact_orders[is_late] = 1 )
+
+
+// ---- Delivery performance -------------------------------------------------------------
+Late Delivery Rate =
+DIVIDE ( [Late Orders], [Delivered Orders] )           // format: Percentage, 1 decimal
+
+On-Time Rate =
+DIVIDE ( [Delivered Orders] - [Late Orders], [Delivered Orders] )
+
+Avg Delivery Days =
+AVERAGE ( fact_orders[delivery_days] )                 // purchase -> delivered to customer
+
+Avg Days Early vs Estimate =
+- AVERAGE ( fact_orders[days_vs_estimate] )            // positive = arrived before promise
+
+
+// ---- Customer reviews -----------------------------------------------------------------
+Reviewed Orders =
+COUNT ( fact_orders[review_score] )                    // blanks (no review) are not counted
+
+Avg Review Score =
+AVERAGE ( fact_orders[review_score] )                  // format: Decimal, 2 places
+
+Avg Score On Time =
+CALCULATE ( [Avg Review Score], fact_orders[is_late] = 0 )
+
+Avg Score Late =
+CALCULATE ( [Avg Review Score], fact_orders[is_late] = 1 )
+
+Score Gap Late vs On Time =
+[Avg Score Late] - [Avg Score On Time]
+
+Negative Reviews =
+CALCULATE ( [Reviewed Orders], fact_orders[review_score] <= 2 )
+
+Negative Review Rate =
+DIVIDE ( [Negative Reviews], [Reviewed Orders] )       // share of 1- and 2-star reviews
+
+Negative Review Rate On Time =
+CALCULATE ( [Negative Review Rate], fact_orders[is_late] = 0 )
+
+Negative Review Rate Late =
+CALCULATE ( [Negative Review Rate], fact_orders[is_late] = 1 )
+
+
+// ---- Seller handover ------------------------------------------------------------------
+//  seller_shipped_late = 1 when the seller handed the parcel to the carrier after its
+//  shipping deadline. Blank when the carrier pickup date is missing.
+Seller Late Shipment Rate =
+DIVIDE (
+    CALCULATE ( [Delivered Orders], fact_orders[seller_shipped_late] = 1 ),
+    CALCULATE ( [Delivered Orders], NOT ISBLANK ( fact_orders[seller_shipped_late] ) )
+)
+
+Late Rate (Seller Shipped Late) =
+CALCULATE ( [Late Delivery Rate], fact_orders[seller_shipped_late] = 1 )
+
+Late Rate (Seller Shipped On Time) =
+CALCULATE ( [Late Delivery Rate], fact_orders[seller_shipped_late] = 0 )
+
+
+// ---- Comparisons and trends -----------------------------------------------------------
+Late Rate All States =
+CALCULATE ( [Late Delivery Rate], REMOVEFILTERS ( dim_states ) )
+
+Late Rate vs Average =
+[Late Delivery Rate] - [Late Rate All States]          // format: Percentage; +ve = worse than average
+
+State Rank by Late Rate =
+IF (
+    HASONEVALUE ( dim_states[state_code] ),
+    RANKX ( ALL ( dim_states[state_code] ), [Late Delivery Rate], , DESC, DENSE )
+)
+
+Late Rate Previous Month =
+CALCULATE ( [Late Delivery Rate], DATEADD ( 'Date'[Date], -1, MONTH ) )
+
+Late Rate MoM Change =
+IF (
+    NOT ISBLANK ( [Late Rate Previous Month] ),
+    [Late Delivery Rate] - [Late Rate Previous Month]
+)
+
+
+// ---- Dynamic titles (use via Format > Title > fx > Field value) -------------------------
+Title Overview =
+"Late orders score " & FORMAT ( [Avg Score Late], "0.0" ) & " stars vs "
+    & FORMAT ( [Avg Score On Time], "0.0" ) & " when delivered on time"
+
+Title Where =
+FORMAT ( [Late Delivery Rate], "0.0%" ) & " of orders arrive late - where it happens most"
